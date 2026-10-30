@@ -1,0 +1,330 @@
+# devclean rule table — embedded into the binary at compile time.
+#
+# A directory becomes a candidate only when ALL of these hold:
+#   1. its name matches one of `dirs`                  (case-insensitive, `*` wildcard)
+#   2. `parent_any`: at least one listed entry exists next to it (empty = no check)
+#   3. `parent_all`: every listed entry exists next to it
+#   4. `inside_any`: at least one listed entry exists inside it   (empty = no check)
+#   5. git: inside a repo the dir MUST be git-ignored (tracked/unignored = protected),
+#      unless `skip_git = true` (pure tool caches that are disposable by definition).
+#      `needs_git = true` additionally refuses the dir when no repo is present —
+#      used for ambiguous names like `dist`/`build`/`out` that humans also create.
+#   6. kind = "deps" additionally needs a lockfile (`lock_any`) OR git-ignore proof;
+#      without either the reinstall is not reproducible, so it is skipped.
+#
+# Tiers: deps+lockfile / cache -> safe, build output -> rebuild, `heavy = true` -> heavy.
+# parent_*: plain names/globs use the parent's (already read) listing; entries with `/`
+# are stat'ed. inside_any: always stat'ed, so no globs there.
+
+# ───────────────────────── JavaScript / TypeScript ─────────────────────────
+[[rule]]
+id = "node_modules"
+ecosystem = "Node.js"
+dirs = ["node_modules"]
+parent_any = ["package.json"]
+lock_any = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"]
+kind = "deps"
+restore = "npm install  (or pnpm / yarn / bun install)"
+
+[[rule]]
+id = "js-framework-cache"
+ecosystem = "Node.js"
+dirs = [".next", ".nuxt", ".output", ".svelte-kit", ".astro", ".turbo", ".parcel-cache",
+        ".angular", ".expo", ".docusaurus", ".vite", ".nx", ".wrangler", ".vinxi", ".react-router"]
+parent_any = ["package.json"]
+kind = "cache"
+restore = "re-run the dev server / build"
+
+[[rule]]
+id = "js-build-output"
+ecosystem = "Node.js"
+dirs = ["dist", "build", "out", "storybook-static", "coverage", ".cache", "release", "dist-electron"]
+parent_any = ["package.json"]
+needs_git = true
+kind = "build"
+restore = "npm run build"
+
+# ───────────────────────── Rust ─────────────────────────
+[[rule]]
+id = "cargo-target"
+ecosystem = "Rust"
+dirs = ["target"]
+parent_any = ["Cargo.toml"]
+kind = "build"
+restore = "cargo build"
+
+# ───────────────────────── Python ─────────────────────────
+[[rule]]
+id = "python-bytecode"
+ecosystem = "Python"
+dirs = ["__pycache__"]
+skip_git = true
+kind = "cache"
+restore = "regenerated automatically on import"
+
+[[rule]]
+id = "python-tool-cache"
+ecosystem = "Python"
+dirs = [".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis", ".pytype", ".pyre"]
+skip_git = true
+kind = "cache"
+restore = "regenerated on next tool run"
+
+[[rule]]
+id = "python-envs-tox"
+ecosystem = "Python"
+dirs = [".tox", ".nox"]
+parent_any = ["tox.ini", "noxfile.py", "pyproject.toml", "setup.cfg"]
+kind = "cache"
+restore = "tox / nox"
+
+[[rule]]
+id = "python-venv"
+ecosystem = "Python"
+dirs = [".venv", "venv", "env", ".env", "virtualenv"]
+inside_any = ["pyvenv.cfg"]
+parent_any = ["requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg", "Pipfile"]
+lock_any = ["requirements.txt", "poetry.lock", "uv.lock", "Pipfile.lock", "pdm.lock", "pylock.toml"]
+kind = "deps"
+restore = "python -m venv .venv && pip install -r requirements.txt  (or uv sync / poetry install)"
+
+[[rule]]
+id = "python-build"
+ecosystem = "Python"
+dirs = ["build", "dist", "*.egg-info", ".eggs"]
+parent_any = ["setup.py", "pyproject.toml", "setup.cfg"]
+needs_git = true
+kind = "build"
+restore = "python -m build"
+
+# ───────────────────────── .NET ─────────────────────────
+[[rule]]
+id = "dotnet-obj"
+ecosystem = ".NET"
+dirs = ["obj"]
+parent_any = ["*.csproj", "*.fsproj", "*.vbproj"]
+kind = "build"
+restore = "dotnet build"
+
+# `bin` additionally needs a sibling `obj`: SDK-style builds always create both, while
+# legacy WebForms sites keep hand-placed DLLs in a lone `bin` that is NOT regenerable.
+[[rule]]
+id = "dotnet-bin"
+ecosystem = ".NET"
+dirs = ["bin"]
+parent_any = ["*.csproj", "*.fsproj", "*.vbproj"]
+parent_all = ["obj"]
+kind = "build"
+restore = "dotnet build"
+
+# ───────────────────────── JVM ─────────────────────────
+[[rule]]
+id = "maven-target"
+ecosystem = "Java"
+dirs = ["target"]
+parent_any = ["pom.xml"]
+kind = "build"
+restore = "mvn package"
+
+[[rule]]
+id = "gradle-build"
+ecosystem = "Java/Kotlin"
+dirs = ["build", ".gradle", ".kotlin", ".cxx", ".externalNativeBuild"]
+parent_any = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+kind = "build"
+restore = "gradle build"
+
+[[rule]]
+id = "sbt-target"
+ecosystem = "Scala"
+dirs = ["target", ".bloop", ".bsp", ".metals"]
+parent_any = ["build.sbt"]
+kind = "build"
+restore = "sbt compile"
+
+# ───────────────────────── C / C++ ─────────────────────────
+[[rule]]
+id = "cmake-build"
+ecosystem = "C/C++"
+dirs = ["build", "builds", "cmake-build-*", "_build"]
+inside_any = ["CMakeCache.txt", "CMakeFiles"]
+parent_any = ["CMakeLists.txt"]
+kind = "build"
+restore = "cmake -B build && cmake --build build"
+
+[[rule]]
+id = "xmake"
+ecosystem = "C/C++"
+dirs = [".xmake", "build"]
+parent_any = ["xmake.lua"]
+kind = "build"
+restore = "xmake"
+
+# ───────────────────────── Mobile / Dart ─────────────────────────
+[[rule]]
+id = "dart"
+ecosystem = "Flutter/Dart"
+dirs = ["build", ".dart_tool"]
+parent_any = ["pubspec.yaml"]
+kind = "build"
+restore = "flutter pub get && flutter build"
+
+[[rule]]
+id = "swift"
+ecosystem = "Swift"
+dirs = [".build", ".swiftpm"]
+parent_any = ["Package.swift"]
+kind = "build"
+restore = "swift build"
+
+# ───────────────────────── PHP / Ruby ─────────────────────────
+[[rule]]
+id = "composer-vendor"
+ecosystem = "PHP"
+dirs = ["vendor"]
+parent_all = ["composer.json", "composer.lock"]
+lock_any = ["composer.lock"]
+kind = "deps"
+restore = "composer install"
+
+# ───────────────────────── Functional / BEAM ─────────────────────────
+[[rule]]
+id = "elixir"
+ecosystem = "Elixir"
+dirs = ["_build", "deps", ".elixir_ls"]
+parent_any = ["mix.exs"]
+lock_any = ["mix.lock"]
+kind = "deps"
+restore = "mix deps.get && mix compile"
+
+[[rule]]
+id = "erlang"
+ecosystem = "Erlang"
+dirs = ["_build"]
+parent_any = ["rebar.config"]
+kind = "build"
+restore = "rebar3 compile"
+
+[[rule]]
+id = "haskell"
+ecosystem = "Haskell"
+dirs = [".stack-work", "dist-newstyle"]
+parent_any = ["stack.yaml", "cabal.project", "*.cabal"]
+kind = "build"
+restore = "stack build / cabal build"
+
+[[rule]]
+id = "ocaml"
+ecosystem = "OCaml"
+dirs = ["_build", "_opam"]
+parent_any = ["dune-project"]
+kind = "build"
+restore = "dune build"
+
+[[rule]]
+id = "elm"
+ecosystem = "Elm"
+dirs = ["elm-stuff"]
+parent_any = ["elm.json"]
+kind = "build"
+restore = "elm make"
+
+# ───────────────────────── Systems ─────────────────────────
+[[rule]]
+id = "zig"
+ecosystem = "Zig"
+dirs = [".zig-cache", "zig-cache", "zig-out"]
+parent_any = ["build.zig"]
+kind = "build"
+restore = "zig build"
+
+[[rule]]
+id = "nim"
+ecosystem = "Nim"
+dirs = ["nimcache"]
+parent_any = ["*.nimble", "*.nim"]
+kind = "build"
+restore = "nimble build"
+
+# ───────────────────────── Game engines ─────────────────────────
+[[rule]]
+id = "unity-library"
+ecosystem = "Unity"
+dirs = ["Library"]
+parent_all = ["ProjectSettings/ProjectVersion.txt", "Assets"]
+kind = "cache"
+heavy = true
+restore = "open the project in Unity (full asset reimport)"
+
+[[rule]]
+id = "unity-temp"
+ecosystem = "Unity"
+dirs = ["Temp", "Obj", "Logs", "Build", "Builds"]
+parent_all = ["ProjectSettings/ProjectVersion.txt", "Assets"]
+needs_git = true
+kind = "build"
+restore = "open the project in Unity / rebuild player"
+
+[[rule]]
+id = "unreal-intermediate"
+ecosystem = "Unreal"
+dirs = ["Intermediate"]
+parent_any = ["*.uproject", "*.uplugin"]
+kind = "build"
+restore = "regenerate project files / build"
+
+[[rule]]
+id = "unreal-ddc"
+ecosystem = "Unreal"
+dirs = ["DerivedDataCache"]
+parent_any = ["*.uproject"]
+kind = "cache"
+heavy = true
+restore = "open the project (shaders recompile)"
+
+# Binaries only for C++ projects: a `Source` folder proves they can be recompiled.
+[[rule]]
+id = "unreal-binaries"
+ecosystem = "Unreal"
+dirs = ["Binaries"]
+parent_any = ["*.uproject", "*.uplugin"]
+parent_all = ["Source"]
+kind = "build"
+heavy = true
+restore = "build from the IDE / UnrealBuildTool"
+
+[[rule]]
+id = "godot"
+ecosystem = "Godot"
+dirs = [".godot", ".import"]
+parent_any = ["project.godot"]
+kind = "cache"
+restore = "open the project in Godot"
+
+# ───────────────────────── Infra ─────────────────────────
+[[rule]]
+id = "terraform"
+ecosystem = "Terraform"
+dirs = [".terraform"]
+parent_any = ["*.tf"]
+lock_any = [".terraform.lock.hcl"]
+kind = "deps"
+restore = "terraform init"
+
+[[rule]]
+id = "serverless"
+ecosystem = "Serverless"
+dirs = [".serverless", ".aws-sam"]
+parent_any = ["serverless.yml", "serverless.yaml", "template.yaml", "template.yml", "samconfig.toml"]
+kind = "build"
+restore = "sls package / sam build"
+
+# ───────────────────────── Self-healing ─────────────────────────
+# Staging folders left behind if devclean was killed mid-delete.
+[[rule]]
+id = "devclean-leftover"
+ecosystem = "devclean"
+dirs = ["*.devclean-trash"]
+skip_git = true
+kind = "cache"
+restore = "nothing to restore — interrupted devclean deletion"

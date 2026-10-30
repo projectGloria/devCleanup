@@ -1,0 +1,12 @@
+/target
+node_modules/
+app/dist/
+app/src-tauri/gen/
+*.devclean-trash
+# tauri icon emits mobile/macOS variants we don't ship
+app/src-tauri/icons/android/
+app/src-tauri/icons/ios/
+app/src-tauri/icons/icon.icns
+app/src-tauri/icons/Square*.png
+app/src-tauri/icons/StoreLogo.png
+app/src-tauri/icons/64x64.png

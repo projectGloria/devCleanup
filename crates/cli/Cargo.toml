@@ -1,0 +1,9 @@
+[package]
+name = "devclean"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+devclean-core.workspace = true
+serde_json.workspace = true
