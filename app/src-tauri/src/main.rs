@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
@@ -34,8 +34,29 @@ enum ScanEvent {
 enum DeleteEvent {
     /// Folders renamed out of the way — gone from the user's point of view.
     Staged { ids: Vec<u64>, failed: Vec<u64> },
-    Progress { done: usize, total: usize, freed: u64 },
-    Done { freed: u64, errors: Vec<String> },
+    /// Periodic snapshot (every `TICK`) of everything in flight.
+    Progress { done: usize, total: usize, freed: u64, files: u64, ms: u64, active: Vec<Active> },
+    /// One folder fully purged.
+    Item { id: u64, freed: u64, files: u64, errors: usize },
+    Done { freed: u64, files: u64, ms: u64, errors: Vec<String> },
+}
+
+#[derive(Serialize, Clone)]
+struct Active {
+    id: u64,
+    freed: u64,
+    files: u64,
+    /// Sub-folder being emptied right now, shown relative to the original folder name.
+    current: Option<String>,
+}
+
+/// One folder being purged. `state`: 0 queued, 1 running, 2 finished.
+struct Job {
+    id: u64,
+    name: String,
+    staged: PathBuf,
+    live: fsutil::Live,
+    state: AtomicU8,
 }
 
 #[derive(Serialize)]
@@ -59,6 +80,8 @@ struct CacheResult {
 /// React re-render thousands of times during a full-drive scan; 16 flushes/s is smooth
 /// enough to look live and cheap enough to be invisible in a profile.
 const FLUSH: Duration = Duration::from_millis(60);
+/// Delete progress cadence: ~10 fps is smooth for bars without flooding IPC.
+const TICK: Duration = Duration::from_millis(100);
 
 #[tauri::command]
 fn start_scan(roots: Vec<String>, on_event: Channel<ScanEvent>, state: State<'_, Arc<AppState>>) {
@@ -133,26 +156,25 @@ fn delete_items(ids: Vec<u64>, on_event: Channel<DeleteEvent>, state: State<'_, 
     };
     let state = state.inner().clone();
     std::thread::spawn(move || {
+        let t0 = Instant::now();
         // Phase 1: stage (rename) everything — milliseconds, then the UI can drop rows.
-        let mut staged = Vec::new();
+        let mut jobs = Vec::new();
         let (mut ok, mut failed) = (Vec::new(), Vec::new());
         let mut errors = Vec::new();
         for (id, path) in targets {
-            match fsutil::stage(&path) {
-                Ok(p) => {
-                    ok.push(id);
-                    staged.push(p);
-                }
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let staged = match fsutil::stage(&path) {
+                Ok(p) => p,
                 // Rename refused (open handle inside): purge in place instead.
-                Err(e) if e.kind() != std::io::ErrorKind::InvalidInput => {
-                    ok.push(id);
-                    staged.push(path);
-                }
+                Err(e) if e.kind() != std::io::ErrorKind::InvalidInput => path,
                 Err(e) => {
                     failed.push(id);
                     errors.push(format!("{}: {e}", path.display()));
+                    continue;
                 }
-            }
+            };
+            ok.push(id);
+            jobs.push(Job { id, name, staged, live: fsutil::Live::default(), state: AtomicU8::new(0) });
         }
         {
             let mut map = state.candidates.lock().unwrap();
@@ -162,23 +184,73 @@ fn delete_items(ids: Vec<u64>, on_event: Channel<DeleteEvent>, state: State<'_, 
         }
         let _ = on_event.send(DeleteEvent::Staged { ids: ok, failed });
 
-        // Phase 2: purge in parallel, reporting progress as each folder finishes.
-        let total = staged.len();
-        let done = std::sync::atomic::AtomicUsize::new(0);
-        let freed = std::sync::atomic::AtomicU64::new(0);
+        // Phase 2: purge in parallel while a ticker samples the live counters.
+        // Scoped threads let the ticker borrow `jobs` without Arc-wrapping each one.
+        let total = jobs.len();
+        let done = AtomicUsize::new(0);
+        let finished = AtomicBool::new(false);
         let errs = Mutex::new(errors);
-        staged.par_iter().for_each(|p| {
-            let r = fsutil::purge(p);
-            freed.fetch_add(r.freed, Ordering::Relaxed);
-            errs.lock().unwrap().extend(r.errors);
-            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = on_event.send(DeleteEvent::Progress { done: n, total, freed: freed.load(Ordering::Relaxed) });
+        let totals = |jobs: &[Job]| {
+            jobs.iter().fold((0, 0), |(b, f), j| {
+                (b + j.live.freed.load(Ordering::Relaxed), f + j.live.files.load(Ordering::Relaxed))
+            })
+        };
+        std::thread::scope(|sc| {
+            sc.spawn(|| {
+                while !finished.load(Ordering::Acquire) {
+                    let (freed, files) = totals(&jobs);
+                    let active = jobs
+                        .iter()
+                        .filter(|j| j.state.load(Ordering::Acquire) == 1)
+                        .map(|j| Active {
+                            id: j.id,
+                            freed: j.live.freed.load(Ordering::Relaxed),
+                            files: j.live.files.load(Ordering::Relaxed),
+                            current: current_rel(j),
+                        })
+                        .collect();
+                    let _ = on_event.send(DeleteEvent::Progress {
+                        done: done.load(Ordering::Relaxed),
+                        total,
+                        freed,
+                        files,
+                        ms: t0.elapsed().as_millis() as u64,
+                        active,
+                    });
+                    std::thread::sleep(TICK);
+                }
+            });
+            jobs.par_iter().for_each(|j| {
+                j.state.store(1, Ordering::Release);
+                let e = fsutil::purge_live(&j.staged, &j.live);
+                j.state.store(2, Ordering::Release);
+                done.fetch_add(1, Ordering::Relaxed);
+                let _ = on_event.send(DeleteEvent::Item {
+                    id: j.id,
+                    freed: j.live.freed.load(Ordering::Relaxed),
+                    files: j.live.files.load(Ordering::Relaxed),
+                    errors: e.len(),
+                });
+                errs.lock().unwrap().extend(e);
+            });
+            finished.store(true, Ordering::Release);
         });
+        let (freed, files) = totals(&jobs);
         let _ = on_event.send(DeleteEvent::Done {
-            freed: freed.into_inner(),
+            freed,
+            files,
+            ms: t0.elapsed().as_millis() as u64,
             errors: errs.into_inner().unwrap_or_default(),
         });
     });
+}
+
+/// `<trash root>` -> `node_modules`: the staging name is an implementation
+/// detail; the user recognizes the original folder name.
+fn current_rel(j: &Job) -> Option<String> {
+    let cur = j.live.current.try_lock().ok()?.clone()?;
+    let rel = cur.strip_prefix(&j.staged).ok()?;
+    Some(PathBuf::from(&j.name).join(rel).to_string_lossy().into_owned())
 }
 
 #[tauri::command]

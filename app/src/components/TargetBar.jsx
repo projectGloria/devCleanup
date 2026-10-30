@@ -1,18 +1,12 @@
-import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { bytes } from '../lib/format.js';
 
 const norm = (p) => p.toLowerCase().replace(/[\\/]+$/, '');
 
-export function TargetBar({ roots, setRoots, scanning, onScan, onCancel }) {
-  const [drives, setDrives] = useState([]);
+// Below this, "+freed" is noise from temp files and browser caches churning.
+const GAIN_MIN = 1 << 20;
 
-  // One-shot fetch from the backend on mount: legitimate effect (external system).
-  useEffect(() => {
-    invoke('list_drives').then(setDrives).catch(() => setDrives([]));
-  }, []);
-
+export function TargetBar({ roots, setRoots, drives, baseline, scanning, onScan, onCancel }) {
   const inList = (list, p) => list.some((r) => norm(r) === norm(p));
   const has = (p) => inList(roots, p);
   // Decide inside the updater from `rs`, not from the render-time `roots` closure.
@@ -32,6 +26,8 @@ export function TargetBar({ roots, setRoots, scanning, onScan, onCancel }) {
       <div className="drives">
         {drives.map((d) => {
           const used = 1 - d.free / d.total;
+          // Derived per render from the live drive list vs the first reading.
+          const gained = d.free - (baseline?.get(d.path) ?? d.free);
           return (
             <button
               key={d.path}
@@ -42,7 +38,10 @@ export function TargetBar({ roots, setRoots, scanning, onScan, onCancel }) {
             >
               <span className="letter">{d.path.slice(0, 2)}</span>
               <span className="usage"><i style={{ width: `${used * 100}%` }} /></span>
-              <span className="free">{bytes(d.free)} free</span>
+              <span className="free">
+                {bytes(d.free)} free
+                {gained >= GAIN_MIN && <em className="gain"> +{bytes(gained)}</em>}
+              </span>
             </button>
           );
         })}

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { bytes } from '../lib/format.js';
 
-export function CachesView({ onToast }) {
+export function CachesView({ onToast, onCleaned }) {
   // null = not detected yet; [] = detected, none found.
   const [caches, setCaches] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -30,6 +30,7 @@ export function CachesView({ onToast }) {
       const results = await invoke('clean_caches', { ids: chosen.map((c) => c.id) });
       const freed = results.reduce((n, r) => n + r.freed, 0);
       const locked = results.filter((r) => r.errors.length > 0).map((r) => r.id);
+      onCleaned();
       onToast(`Freed ${bytes(freed)} from caches${locked.length ? ` · some files locked in: ${locked.join(', ')}` : ''}`);
       setCaches(await invoke('list_caches'));
     } finally {

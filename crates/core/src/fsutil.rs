@@ -87,18 +87,31 @@ pub fn stage(path: &Path) -> io::Result<PathBuf> {
     Ok(staged)
 }
 
+/// Live counters for one purge, readable from another thread while it runs.
+/// The GUI polls these to draw per-folder progress; the CLI just ignores them.
+#[derive(Debug, Default)]
+pub struct Live {
+    pub freed: AtomicU64,
+    pub files: AtomicU64,
+    /// Directory most recently entered. Written with `try_lock` only, so a
+    /// contended lock skips an update instead of stalling a delete worker.
+    pub current: Mutex<Option<PathBuf>>,
+}
+
 /// Delete a directory tree in parallel. Continues past individual failures (locked
 /// files) and reports them instead of aborting the whole run.
 pub fn purge(path: &Path) -> DeleteReport {
-    let freed = AtomicU64::new(0);
-    let files = AtomicU64::new(0);
+    let live = Live::default();
+    let errors = purge_live(path, &live);
+    DeleteReport { freed: live.freed.into_inner(), files: live.files.into_inner(), errors }
+}
+
+/// `purge`, but counting into caller-owned `Live` counters so progress is observable
+/// per file instead of only when the whole tree is gone.
+pub fn purge_live(path: &Path, live: &Live) -> Vec<String> {
     let errors = Mutex::new(Vec::new());
-    remove_tree(path, &freed, &files, &errors);
-    DeleteReport {
-        freed: freed.into_inner(),
-        files: files.into_inner(),
-        errors: errors.into_inner().unwrap_or_default(),
-    }
+    remove_tree(path, live, &errors);
+    errors.into_inner().unwrap_or_default()
 }
 
 /// Stage then purge; falls back to in-place purge when the rename is refused
@@ -131,7 +144,10 @@ pub fn delete_many(paths: &[PathBuf]) -> Vec<DeleteReport> {
         .collect()
 }
 
-fn remove_tree(dir: &Path, freed: &AtomicU64, files: &AtomicU64, errors: &Mutex<Vec<String>>) {
+fn remove_tree(dir: &Path, live: &Live, errors: &Mutex<Vec<String>>) {
+    if let Ok(mut cur) = live.current.try_lock() {
+        *cur = Some(dir.to_path_buf());
+    }
     let push_err = |p: &Path, e: io::Error| {
         if let Ok(mut v) = errors.lock() {
             // Cap the list: a locked 50k-file tree should not produce a 50k-line report.
@@ -155,13 +171,13 @@ fn remove_tree(dir: &Path, freed: &AtomicU64, files: &AtomicU64, errors: &Mutex<
                 push_err(&p, e);
             }
         } else if ft.is_dir() {
-            remove_tree(&p, freed, files, errors);
+            remove_tree(&p, live, errors);
         } else {
             let len = e.metadata().map(|m| m.len()).unwrap_or(0);
             match retry_readonly(&p, || fs::remove_file(&p)) {
                 Ok(()) => {
-                    freed.fetch_add(len, Ordering::Relaxed);
-                    files.fetch_add(1, Ordering::Relaxed);
+                    live.freed.fetch_add(len, Ordering::Relaxed);
+                    live.files.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(e) => push_err(&p, e),
             }
