@@ -87,6 +87,21 @@ pub fn stage(path: &Path) -> io::Result<PathBuf> {
     Ok(staged)
 }
 
+/// Validates that a directory name strictly matches `<name>.<pid>-<nanos>.devclean-trash`.
+pub fn is_staged_trash_name(name: &str) -> bool {
+    if let Some(rest) = name.strip_suffix(".devclean-trash") {
+        if let Some((_, ids)) = rest.rsplit_once('.') {
+            if let Some((pid, nanos)) = ids.split_once('-') {
+                return !pid.is_empty()
+                    && !nanos.is_empty()
+                    && pid.chars().all(|c| c.is_ascii_digit())
+                    && nanos.chars().all(|c| c.is_ascii_digit());
+            }
+        }
+    }
+    false
+}
+
 /// Live counters for one purge, readable from another thread while it runs.
 /// The GUI polls these to draw per-folder progress; the CLI just ignores them.
 #[derive(Debug, Default)]
@@ -97,6 +112,20 @@ pub struct Live {
     /// contended lock skips an update instead of stalling a delete worker.
     pub current: Mutex<Option<PathBuf>>,
 }
+
+/// Sets current thread to background priority to prevent I/O starvation and Defender thrashing.
+#[cfg(windows)]
+pub fn set_background_priority() {
+    unsafe {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
+        };
+        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_background_priority() {}
 
 /// Delete a directory tree in parallel. Continues past individual failures (locked
 /// files) and reports them instead of aborting the whole run.
@@ -109,20 +138,20 @@ pub fn purge(path: &Path) -> DeleteReport {
 /// `purge`, but counting into caller-owned `Live` counters so progress is observable
 /// per file instead of only when the whole tree is gone.
 pub fn purge_live(path: &Path, live: &Live) -> Vec<String> {
+    set_background_priority();
     let errors = Mutex::new(Vec::new());
     remove_tree(path, live, &errors);
     errors.into_inner().unwrap_or_default()
 }
 
-/// Stage then purge; falls back to in-place purge when the rename is refused
-/// (e.g. a process holds a handle inside the tree).
+/// Stage then purge; aborts on stage failure to keep project folder intact.
 pub fn delete_dir(path: &Path) -> DeleteReport {
     match stage(path) {
         Ok(staged) => purge(&staged),
-        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
-            DeleteReport { errors: vec![format!("{}: {e}", path.display())], ..Default::default() }
-        }
-        Err(_) => purge(path),
+        Err(e) => DeleteReport {
+            errors: vec![format!("{}: cannot stage (locked or in-use): {e}", path.display())],
+            ..Default::default()
+        },
     }
 }
 
@@ -136,10 +165,10 @@ pub fn delete_many(paths: &[PathBuf]) -> Vec<DeleteReport> {
         .into_par_iter()
         .map(|s| match s {
             Ok(p) => purge(&p),
-            Err((p, e)) if e.kind() == io::ErrorKind::InvalidInput => {
-                DeleteReport { errors: vec![format!("{}: {e}", p.display())], ..Default::default() }
-            }
-            Err((p, _)) => purge(&p),
+            Err((p, e)) => DeleteReport {
+                errors: vec![format!("{}: cannot stage (locked or in-use): {e}", p.display())],
+                ..Default::default()
+            },
         })
         .collect()
 }

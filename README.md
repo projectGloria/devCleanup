@@ -86,7 +86,7 @@ Standard disk cleanup tools do not understand codebases. They either miss develo
   <tr>
     <td width="50%">
       <h3>💨 Instant Staging Architecture</h3>
-      <p>Eliminate deletion lag. Folders are instantly moved to <code>&lt;drive&gt;\.devclean-trash</code> with a single atomic metadata operation, then purged concurrently in the background.</p>
+      <p>Eliminate deletion lag. Folders are instantly moved out of the project via an atomic in-volume sibling rename (<code>&lt;name&gt;.&lt;pid&gt;-&lt;nanos&gt;.devclean-trash</code>) with a single metadata operation, preventing cross-volume and root permission issues, then purged concurrently in the background.</p>
     </td>
     <td width="50%">
       <h3>💻 Desktop GUI + Featherweight CLI</h3>

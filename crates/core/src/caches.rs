@@ -183,7 +183,12 @@ fn purge_contents(dir: &Path) -> DeleteReport {
 /// GUI from flashing console windows.
 fn shell(line: &str) -> Command {
     let mut c = Command::new("cmd");
-    c.args(["/D", "/C", line]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let sys_root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    c.current_dir(sys_root)
+        .args(["/D", "/C", line])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { bytes } from '../lib/format.js';
+import { ConfirmDialog } from './ConfirmDialog.jsx';
 
 export function CachesView({ onToast, onCleaned }) {
   // null = not detected yet; [] = detected, none found.
   const [caches, setCaches] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [overrides, setOverrides] = useState(() => new Map());
 
   const isSelected = (c) => overrides.get(c.id) ?? c.tier !== 'heavy';
@@ -79,10 +81,26 @@ export function CachesView({ onToast, onCleaned }) {
         <button className="btn ghost" onClick={detect} disabled={busy}>
           Re-measure
         </button>
-        <button className="btn danger" disabled={busy || chosen.length === 0} onClick={clean}>
+        <button className="btn danger" disabled={busy || chosen.length === 0} onClick={() => setConfirming(true)}>
           {busy ? 'Working…' : `Clean ${bytes(chosenBytes)}`}
         </button>
       </footer>
+      {confirming && (
+        <ConfirmDialog
+          items={chosen.map((c) => ({
+            id: c.id,
+            bytes: c.bytes,
+            tier: c.tier,
+            path: c.name,
+            restore: c.note || c.method,
+          }))}
+          onConfirm={() => {
+            setConfirming(false);
+            clean();
+          }}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </>
   );
 }

@@ -7,7 +7,7 @@ pub mod git;
 pub mod rules;
 pub mod scan;
 
-pub use fsutil::{delete_dir, delete_many, purge, stage, DeleteReport, Size};
+pub use fsutil::{delete_dir, delete_many, is_staged_trash_name, purge, stage, DeleteReport, Size};
 pub use rules::{Kind, RuleSet, Tier};
 pub use scan::{scan, Candidate, ScanOptions, ScanStats};
 

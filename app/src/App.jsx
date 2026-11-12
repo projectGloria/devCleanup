@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useScan } from './hooks/useScan.js';
 import { useDrives } from './hooks/useDrives.js';
 import { useDelete } from './hooks/useDelete.js';
@@ -41,6 +42,36 @@ export default function App() {
     return () => clearInterval(t);
   }, [deleting, refreshDrives]);
 
+  const handleClose = async () => {
+    if (deleting) {
+      const ok = window.confirm(
+        'A deletion is currently running in the background.\nClosing now will abort the cleanup. Are you sure you want to exit?',
+      );
+      if (!ok) return;
+    }
+    await getCurrentWindow().destroy();
+  };
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unlisten;
+    win
+      .onCloseRequested((event) => {
+        if (deleting) {
+          const ok = window.confirm(
+            'A deletion is currently running in the background.\nClosing now will abort the cleanup. Are you sure you want to exit?',
+          );
+          if (!ok) {
+            event.preventDefault();
+          }
+        }
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => unlisten?.();
+  }, [deleting]);
+
   const runDelete = (list) => {
     setPending(null);
     setPanelHidden(false);
@@ -61,7 +92,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TitleBar>
+      <TitleBar onClose={handleClose}>
         <div className="brand">
           <h1>devClean</h1>
           <span className="dim">re-creatable dev artifacts only</span>

@@ -18,6 +18,7 @@ use tauri::State;
 struct AppState {
     candidates: Mutex<HashMap<u64, Candidate>>,
     cancel: Mutex<Arc<AtomicBool>>,
+    scan_id: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Serialize, Clone)]
@@ -86,6 +87,7 @@ const TICK: Duration = Duration::from_millis(100);
 #[tauri::command]
 fn start_scan(roots: Vec<String>, on_event: Channel<ScanEvent>, state: State<'_, Arc<AppState>>) {
     let cancel = Arc::new(AtomicBool::new(false));
+    let current_scan_id = state.scan_id.fetch_add(1, Ordering::Relaxed) + 1;
     // Cancel any scan still running, then swap in this scan's flag.
     {
         let mut slot = state.cancel.lock().unwrap();
@@ -108,13 +110,20 @@ fn start_scan(roots: Vec<String>, on_event: Channel<ScanEvent>, state: State<'_,
         let flusher = {
             let (pending, stats, finished, ch, state) =
                 (Arc::clone(&pending), Arc::clone(&stats), Arc::clone(&finished), on_event.clone(), Arc::clone(&state));
+            let cancel = Arc::clone(&cancel);
             std::thread::spawn(move || loop {
                 let done = finished.load(Ordering::Acquire);
+                let is_stale = cancel.load(Ordering::Relaxed) || state.scan_id.load(Ordering::Relaxed) != current_scan_id;
+                if is_stale {
+                    break;
+                }
                 let items = std::mem::take(&mut *pending.lock().unwrap());
                 if !items.is_empty() {
                     let mut map = state.candidates.lock().unwrap();
-                    for c in &items {
-                        map.insert(c.id, c.clone());
+                    if state.scan_id.load(Ordering::Relaxed) == current_scan_id && !cancel.load(Ordering::Relaxed) {
+                        for c in &items {
+                            map.insert(c.id, c.clone());
+                        }
                     }
                     drop(map);
                     let _ = ch.send(ScanEvent::Batch { items });
@@ -152,10 +161,18 @@ fn cancel_scan(state: State<'_, Arc<AppState>>) {
 fn delete_items(ids: Vec<u64>, on_event: Channel<DeleteEvent>, state: State<'_, Arc<AppState>>) {
     let targets: Vec<(u64, PathBuf)> = {
         let map = state.candidates.lock().unwrap();
-        ids.iter().filter_map(|id| map.get(id).map(|c| (*id, PathBuf::from(&c.path)))).collect()
+        ids.iter().filter_map(|id| map.get(id).map(|c| {
+            let p = if c.real_path.as_os_str().is_empty() {
+                PathBuf::from(&c.path)
+            } else {
+                c.real_path.clone()
+            };
+            (*id, p)
+        })).collect()
     };
     let state = state.inner().clone();
     std::thread::spawn(move || {
+        fsutil::set_background_priority();
         let t0 = Instant::now();
         // Phase 1: stage (rename) everything — milliseconds, then the UI can drop rows.
         let mut jobs = Vec::new();
@@ -165,11 +182,9 @@ fn delete_items(ids: Vec<u64>, on_event: Channel<DeleteEvent>, state: State<'_, 
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let staged = match fsutil::stage(&path) {
                 Ok(p) => p,
-                // Rename refused (open handle inside): purge in place instead.
-                Err(e) if e.kind() != std::io::ErrorKind::InvalidInput => path,
                 Err(e) => {
                     failed.push(id);
-                    errors.push(format!("{}: {e}", path.display()));
+                    errors.push(format!("{}: cannot stage (locked or in-use): {e}", path.display()));
                     continue;
                 }
             };
@@ -275,8 +290,11 @@ async fn clean_caches(ids: Vec<String>) -> Vec<CacheResult> {
 
 #[tauri::command]
 fn reveal(path: String) {
-    // `/select,` highlights the item in its parent folder.
-    let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+    let p = std::path::Path::new(&path);
+    if p.is_absolute() && p.exists() {
+        // `/select,` highlights the item in its parent folder.
+        let _ = std::process::Command::new("explorer").arg(format!("/select,{}", p.display())).spawn();
+    }
 }
 
 #[tauri::command]

@@ -86,7 +86,7 @@ impl RuleSet {
         // Pre-lowercase every pattern once so the hot path compares lowercase-to-lowercase
         // (NTFS is case-insensitive; `Library` and `library` are the same folder).
         for r in &mut file.rule {
-            for v in [&mut r.dirs, &mut r.parent_any, &mut r.parent_all, &mut r.lock_any] {
+            for v in [&mut r.dirs, &mut r.parent_any, &mut r.parent_all, &mut r.lock_any, &mut r.inside_any] {
                 for s in v.iter_mut() {
                     *s = s.to_ascii_lowercase();
                 }
@@ -126,6 +126,9 @@ pub fn evaluate<'a>(
 
     for rule in &rules.rules {
         if !rule.dirs.iter().any(|p| glob_match(p, lower_name)) {
+            continue;
+        }
+        if rule.id == "devclean-leftover" && !crate::fsutil::is_staged_trash_name(lower_name) {
             continue;
         }
         let has = |pat: &String| marker_present(parent, pat, siblings);

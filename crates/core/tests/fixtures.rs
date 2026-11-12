@@ -1,6 +1,6 @@
 //! Fixture tests: every ecosystem rule plus the adversarial "must survive" cases.
 
-use devclean_core::{delete_many, scan, Candidate, RuleSet, ScanOptions, ScanStats, Tier};
+use devclean_core::{delete_dir, delete_many, scan, Candidate, RuleSet, ScanOptions, ScanStats, Tier};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -305,4 +305,121 @@ fn sizes_are_counted() {
     let c = run(r);
     assert_eq!(c[0].bytes, 10_500);
     assert_eq!(c[0].files, 2);
+}
+
+fn write_test_git_index(path: &Path, tracked_paths: &[&str]) {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"DIRC");
+    data.extend_from_slice(&2u32.to_be_bytes());
+    data.extend_from_slice(&(tracked_paths.len() as u32).to_be_bytes());
+    for p in tracked_paths {
+        let entry_start = data.len();
+        data.extend_from_slice(&[0u8; 40]);
+        data.extend_from_slice(&[0u8; 20]);
+        let flags = (p.len().min(0xFFF) as u16).to_be_bytes();
+        data.extend_from_slice(&flags);
+        data.extend_from_slice(p.as_bytes());
+        let raw_len = (data.len() + 1) - entry_start;
+        let padded_len = raw_len.div_ceil(8) * 8;
+        let pad_count = padded_len - (data.len() - entry_start);
+        data.resize(data.len() + pad_count, 0);
+    }
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, data).unwrap();
+}
+
+#[test]
+fn test_tracked_file_inside_ignored_directory_must_not_be_safe() {
+    // Tests that committed files inside an ignored directory are caught and protected.
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    mkdir(r, "repo/.git");
+    fs::write(r.join("repo/.gitignore"), "dist/\n").unwrap();
+    touch(r, "repo/package.json");
+    touch(r, "repo/dist/output.js");
+    touch(r, "repo/dist/tracked_manual_asset.dll");
+
+    // Write a .git/index marking dist/tracked_manual_asset.dll as tracked
+    write_test_git_index(&r.join("repo/.git/index"), &["dist/tracked_manual_asset.dll"]);
+
+    let f = found(r);
+    // Tracked assets inside dist mean dist must NOT be classified as a candidate
+    assert!(absent(&f, "repo/dist"), "ignored dir with tracked assets must NOT be classified as candidate: {f:?}");
+}
+
+#[test]
+fn test_excludes_take_precedence_over_rule_matches() {
+    // If a candidate matches a rule inside an excluded path, excludes MUST win.
+    let mut ex = devclean_core::excludes::Excludes::none();
+    ex.add_path(Path::new("C:\\ExcludedDir"));
+
+    assert!(ex.skip("node_modules", Path::new("C:\\ExcludedDir\\node_modules")));
+
+    // End to end scan with excluded directory
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    let excluded = r.join("excluded_workspace");
+    touch(&excluded, "package.json");
+    touch(&excluded, "package-lock.json");
+    touch(&excluded, "node_modules/x/index.js");
+
+    let rules = RuleSet::embedded();
+    let mut opts = ScanOptions::new(vec![r.to_path_buf()]);
+    opts.excludes.add_path(&excluded);
+    let out = Mutex::new(Vec::new());
+    scan(&rules, &opts, &ScanStats::default(), &|c| out.lock().unwrap().push(c));
+    let candidates = out.into_inner().unwrap();
+    assert!(candidates.is_empty(), "candidates inside excluded workspace must be skipped: {candidates:?}");
+}
+
+#[test]
+fn test_devclean_trash_rule_does_not_match_arbitrary_user_folder() {
+    let rs = RuleSet::embedded();
+    let rule = rs.rules.iter().find(|r| r.id == "devclean-leftover").unwrap();
+    assert_eq!(rule.id, "devclean-leftover");
+
+    // Test the strict naming validator
+    assert!(!devclean_core::fsutil::is_staged_trash_name("important_project.devclean-trash"));
+    assert!(devclean_core::fsutil::is_staged_trash_name("node_modules.1234-56789.devclean-trash"));
+
+    // End-to-end scan: arbitrary user folder named *.devclean-trash must survive
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    touch(r, "proj/backup.devclean-trash/file.txt");
+    touch(r, "proj/node_modules.123-456.devclean-trash/x.js");
+    let f = found(r);
+    assert!(absent(&f, "proj/backup.devclean-trash"), "arbitrary *.devclean-trash must not be matched: {f:?}");
+    assert!(has(&f, "proj/node_modules.123-456.devclean-trash", Tier::Safe), "valid staged trash must be matched: {f:?}");
+}
+
+#[test]
+fn test_git_worktree_submodule_dot_git_file_handled() {
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    let real_git = r.join("real-git-dir");
+    fs::create_dir_all(real_git.join("info")).unwrap();
+    fs::write(real_git.join("info/exclude"), "target/\n").unwrap();
+
+    let worktree = r.join("worktree");
+    fs::create_dir_all(&worktree).unwrap();
+    fs::write(worktree.join(".git"), format!("gitdir: {}\n", real_git.display())).unwrap();
+    touch(&worktree, "Cargo.toml");
+    touch(&worktree, "target/debug/app.exe");
+
+    let f = found(&worktree);
+    // Verify target is recognized as ignored via worktree gitdir
+    assert!(has(&f, "target", Tier::Rebuild), "worktree target should be rebuild candidate: {f:?}");
+}
+
+#[test]
+fn test_no_in_place_delete_on_stage_failure() {
+    let t = tempfile::tempdir().unwrap();
+    let r = t.path();
+    let target = r.join("file_not_dir.txt");
+    fs::write(&target, b"important data").unwrap();
+
+    // Passing a file to delete_dir fails staging because it's not a real directory
+    let report = delete_dir(&target);
+    assert!(!report.errors.is_empty(), "should report error on stage failure");
+    assert!(target.exists(), "source file must not be deleted in-place");
 }

@@ -11,7 +11,7 @@ const GLYPH = { min: '\u{E921}', max: '\u{E922}', restore: '\u{E923}', close: '\
  * `data-tauri-drag-region`; it only fires when the attribute is on the element under
  * the cursor, so decorative text inside is made click-through in CSS.
  */
-export function TitleBar({ children }) {
+export function TitleBar({ children, onClose }) {
   const [maximized, setMaximized] = useState(false);
 
   // Window resize events are an external system; keep the restore/maximize glyph in sync.
@@ -39,7 +39,7 @@ export function TitleBar({ children }) {
         <button onClick={() => win().toggleMaximize()} aria-label={maximized ? 'Restore' : 'Maximize'}>
           {maximized ? GLYPH.restore : GLYPH.max}
         </button>
-        <button className="close" onClick={() => win().close()} aria-label="Close">{GLYPH.close}</button>
+        <button className="close" onClick={onClose ?? (() => win().close())} aria-label="Close">{GLYPH.close}</button>
       </div>
     </header>
   );

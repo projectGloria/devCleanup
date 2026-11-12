@@ -6,20 +6,23 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Default)]
 pub struct Excludes {
     names: HashSet<String>,
     paths: Vec<String>,
     path_leaves: HashSet<String>,
 }
 
-/// Never descend, anywhere. Dependency stores here are either matched by a rule first
-/// (project `node_modules`) or belong to something installed (global npm, VS Code
-/// extensions, Electron apps) whose nested deps must NOT be touched.
+/// Never descend, anywhere.
 const NAMES: &[&str] = &[
     ".git", ".hg", ".svn", ".jj",
-    "node_modules", "site-packages", "dist-packages", "bower_components",
     "$recycle.bin", "system volume information", "$winreagent", "$windows.~bt",
     "$windows.~ws", "config.msi", "windowsapps", "steamapps", "perflogs",
+];
+
+/// Dependency directories that must never be descended into when not matched as candidates.
+pub const PRUNE_NAMES: &[&str] = &[
+    "node_modules", "site-packages", "dist-packages", "bower_components",
 ];
 
 /// Relative to %USERPROFILE%. Tool homes are handled (safely) by the caches module.
@@ -66,15 +69,29 @@ impl Excludes {
         self.paths.push(s);
     }
 
+    /// If an explicit scan root is inside an excluded path `p`, remove `p` from `self.paths`
+    /// so that the requested scan root is not blocked.
+    pub fn retain_excludes_for_roots(&mut self, roots: &[PathBuf]) {
+        let norm_roots: Vec<String> = roots.iter().map(|r| norm(r)).collect();
+        self.paths.retain(|p| {
+            !norm_roots.iter().any(|r| r == p || r.starts_with(&format!("{p}\\")))
+        });
+    }
+
     /// `lower_name` must already be lowercase.
     pub fn skip(&self, lower_name: &str, full: &Path) -> bool {
         if self.names.contains(lower_name) {
             return true;
         }
-        self.path_leaves.contains(lower_name) && {
-            let f = norm(full);
-            self.paths.contains(&f)
+        self.is_path_excluded(full)
+    }
+
+    pub fn is_path_excluded(&self, full: &Path) -> bool {
+        if self.paths.is_empty() {
+            return false;
         }
+        let f = norm(full);
+        self.paths.iter().any(|p| f == *p || f.starts_with(&format!("{p}\\")))
     }
 }
 

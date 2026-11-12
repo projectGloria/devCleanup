@@ -5,21 +5,23 @@
 //! last-modified estimate. Matched directories are never entered, which is where
 //! most of the speed comes from: `node_modules` is ~90% of a JS dev drive's inodes.
 
-use crate::excludes::{norm, Excludes};
+use crate::excludes::{norm, Excludes, PRUNE_NAMES};
 use crate::fsutil::dir_size;
 use crate::git::GitState;
 use crate::rules::{evaluate, Kind, RuleSet, Tier};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, DirEntry};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candidate {
     pub id: u64,
     pub path: String,
+    #[serde(default)]
+    pub real_path: PathBuf,
     pub project: String,
     pub name: String,
     pub rule: String,
@@ -65,8 +67,15 @@ struct Ctx<'a> {
 /// Blocks until the walk completes (or is cancelled). Candidates are pushed to
 /// `on_found` from worker threads as soon as each one is sized.
 pub fn scan(rules: &RuleSet, opts: &ScanOptions, stats: &ScanStats, on_found: &(dyn Fn(Candidate) + Sync)) {
-    let ctx = Ctx { rules, opts, stats, next_id: AtomicU64::new(1), on_found };
+    let mut effective_excludes = opts.excludes.clone();
     let roots = dedupe_roots(&opts.roots);
+    effective_excludes.retain_excludes_for_roots(&roots);
+    let effective_opts = ScanOptions {
+        roots: opts.roots.clone(),
+        excludes: effective_excludes,
+        cancel: Arc::clone(&opts.cancel),
+    };
+    let ctx = Ctx { rules, opts: &effective_opts, stats, next_id: AtomicU64::new(1), on_found };
     rayon::scope(|s| {
         for root in roots {
             let git = git_for_ancestors(&root);
@@ -78,6 +87,9 @@ pub fn scan(rules: &RuleSet, opts: &ScanOptions, stats: &ScanStats, on_found: &(
 
 fn walk<'s>(dir: PathBuf, parent_git: Arc<GitState>, ctx: &'s Ctx<'s>, s: &rayon::Scope<'s>) {
     if ctx.opts.cancel.load(Ordering::Relaxed) {
+        return;
+    }
+    if ctx.opts.excludes.is_path_excluded(&dir) {
         return;
     }
     ctx.stats.dirs.fetch_add(1, Ordering::Relaxed);
@@ -102,13 +114,16 @@ fn walk<'s>(dir: PathBuf, parent_git: Arc<GitState>, ctx: &'s Ctx<'s>, s: &rayon
         }
         let name = &lower[i];
         let child = e.path();
+        if ctx.opts.excludes.skip(name, &child) {
+            continue;
+        }
         if ctx.rules.name_is_interesting(name) {
             if let Some(v) = evaluate(ctx.rules, &dir, &child, name, &lower, || git.status(&child)) {
                 found.push((i, child, v.tier, v.rule));
                 continue;
             }
         }
-        if ctx.opts.excludes.skip(name, &child) {
+        if PRUNE_NAMES.contains(&name.as_str()) {
             continue;
         }
         let g = Arc::clone(&git);
@@ -130,6 +145,7 @@ fn walk<'s>(dir: PathBuf, parent_git: Arc<GitState>, ctx: &'s Ctx<'s>, s: &rayon
         (ctx.on_found)(Candidate {
             id: ctx.next_id.fetch_add(1, Ordering::Relaxed),
             path: display(&path),
+            real_path: path.clone(),
             project: project.clone(),
             name: entries[i].file_name().to_string_lossy().into_owned(),
             rule: rule.id.clone(),
