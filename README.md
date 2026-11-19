@@ -1,318 +1,289 @@
 <div align="center">
 
-<img src="assets/icon.png" alt="devClean Logo" width="120" height="120" />
+<img src="assets/icon.png" alt="devClean icon" width="112" height="112" />
 
 # devClean
 
-**Blazing-fast, zero-risk developer disk cleaner crafted for Windows**
+**Fast, verification-first disk cleaner for Windows developer artifacts**
 
-*Reclaim tens of gigabytes of re-creatable artifacts — `node_modules`, `target`, `.venv`, build outputs, and package caches.*
-
-<p>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-00B074.svg?style=flat-square" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D4.svg?style=flat-square&logo=windows" alt="Platform: Windows x64" />
-  <img src="https://img.shields.io/badge/Rust-1.80+-DEA584.svg?style=flat-square&logo=rust" alt="Rust" />
-  <img src="https://img.shields.io/badge/Tauri-v2-24C8DB.svg?style=flat-square&logo=tauri" alt="Tauri" />
-  <img src="https://img.shields.io/badge/React-19-61DAFB.svg?style=flat-square&logo=react" alt="React 19" />
-  <img src="https://img.shields.io/badge/Safety-Enforced%20Zero--Risk-2dd4bf.svg?style=flat-square" alt="Safety: Enforced Zero-Risk" />
-</p>
-
----
+Reclaim gigabytes of re-creatable `node_modules`, `target`, `.venv`, build outputs, and global package caches without risking source files.
 
 <p>
-  <a href="#-about-devclean">About</a> •
-  <a href="#-key-features">Features</a> •
-  <a href="#-visual-tour">Visual Tour</a> •
-  <a href="#-safety-model--tiers">Safety Model</a> •
-  <a href="#-supported-ecosystems">Ecosystems</a> •
-  <a href="#-installation--usage">Usage</a> •
-  <a href="#-performance--benchmarks">Benchmarks</a> •
-  <a href="#-building-from-source">Building</a> •
-  <a href="#-design-philosophy">Design</a> •
-  <a href="#-license">License</a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3fb950.svg?style=flat-square" alt="License: MIT" /></a>
+  <a href="https://github.com/projectGloria/devCleanup/releases"><img src="https://img.shields.io/badge/Version-1.0.0--beta.2-2dd4bf.svg?style=flat-square" alt="Version: 1.0.0-beta.2" /></a>
+  <img src="https://img.shields.io/badge/Platform-Windows-0078D4.svg?style=flat-square" alt="Platform: Windows" />
+  <img src="https://img.shields.io/badge/Rust-Edition%202021-DEA584.svg?style=flat-square" alt="Rust Edition 2021" />
+  <img src="https://img.shields.io/badge/Desktop-Tauri%20v2%20%2B%20React%2019-6366f1.svg?style=flat-square" alt="Tauri v2 + React 19" />
 </p>
 
-<picture>
-  <img
-    width="900"
-    src="assets/devclean-preview.jpg"
-    alt="devClean Desktop Interface Preview"
-  />
-</picture>
+<p>
+  <a href="#about">About</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#safety-model">Safety model</a> ·
+  <a href="#supported-ecosystems-and-caches">Ecosystems</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#building-from-source">Building</a> ·
+  <a href="#license">License</a>
+</p>
+
+<img src="docs/assets/projects.png" alt="devClean desktop interface showing scanned developer artifacts across drives with tier filters" width="880" />
 
 </div>
 
 ---
 
-## 🧹 About devClean
+## About
 
-Every developer's drive silently drowns under gigabytes of forgotten build outputs, virtual environments, intermediate tool files, and global package stores: hundreds of `node_modules` folders, multi-gigabyte Rust `target/` directories, Python `.venv` trees, C# `bin/obj` dumps, and bloated tool caches.
+Developer drives accumulate gigabytes of regenerable build outputs, virtual environments, and global package stores (`node_modules`, Rust `target/`, Python `.venv`, `.NET` `bin`/`obj`, Unity `Library`, and package caches). Generic disk cleaners either ignore developer directories or match names like `build` and `dist` blindly.
 
-Standard disk cleanup tools do not understand codebases. They either miss developer folders entirely or recklessly delete directories based purely on names like `dist` or `build`, endangering hand-authored assets.
+**devClean** pairs a multi-threaded Rust scanner (`devclean-core`) with an embedded declarative rule table ([`rules.toml`](rules.toml)). Every candidate must satisfy project-marker checks and in-process Git verification before it can be staged for removal. It ships as both a frameless Windows desktop app (Tauri v2 + React 19) and a standalone CLI (`devclean.exe`) with zero external runtime dependencies.
 
-**devClean** solves this with a **zero-risk verification engine**:
+## Features
 
-- ⚡ **Pure Rust Engine**: Sub-second folder discovery, zero runtime overhead, no garbage collection pauses, and multi-core directory enumeration.
-- 🛡️ **Enforced Zero-Risk Safety**: Nothing is matched by name alone. Candidates are only eligible when an unambiguous project marker exists (`package.json`, `Cargo.toml`, `*.csproj`), the directory is confirmed `.gitignore`d, and dependencies have a lockfile backing reproducible reinstalls.
-- 🚀 **Instant Staging Deletion**: Deleting 200,000 files in Windows normally freezes Explorer or takes minutes in the Recycle Bin. devClean atomically renames candidate trees into a hidden staging trash in a single metadata tick, then purges them asynchronously in parallel.
-- 🪟 **Crafted for Windows**: Native Windows 11 acrylic interface powered by Tauri v2 and React 19, plus a feather-weight 1.6 MB CLI tool built for scripts and automated Task Scheduler maintenance.
-- 📦 **Dual-Scope Cleaning**: Reclaims space from active project directories across 15+ ecosystems and scrubs system-wide package caches (npm, pnpm, Cargo, pip, NuGet, Gradle, Go, Hugging Face, JetBrains, and more).
+- **Verification-first matching**: Nothing is matched by folder name alone. Candidates require co-located project markers (`package.json`, `Cargo.toml`, `*.csproj`, `pyproject.toml`, etc.), in-process `.gitignore` and Git index checks, and lockfile proof for dependency folders.
+- **Prune-on-match parallel scanning**: Powered by Rayon, the walker lists each directory once and never descends into matched candidate trees or symlinks/junctions.
+- **Three safety tiers**: Separates candidates into **Safe** (lockfile-backed dependencies and disposable caches), **Rebuild** (compiled build outputs), and **Heavy** (opt-in slow regenerables like Unity `Library` and Unreal `DerivedDataCache`).
+- **Instant atomic staging + background purge**: Renames target folders in-place to `<name>.<pid>-<nanos>.devclean-trash` in a single metadata operation, then purges files in parallel at background I/O priority while reporting live progress and free-space gains.
+- **Categorized exploration**: Group scan results by folder tree, ecosystem, or artifact type with proportional size bars, age filters (`≥ 7d` to `≥ 180d`), and path search.
+- **25 global toolchain caches**: Detects and cleans npm, pnpm, Yarn, Bun, Cargo, pip, uv, Poetry, NuGet, Gradle, Maven, Go, Playwright, JetBrains, VS Code, Hugging Face, and more—delegating to the native CLI when available on `PATH`.
+- **Desktop GUI + scriptable CLI**: Use the interactive Tauri app for visual inspection or `devclean.exe` (with `--json` and `--yes` flags) for scheduled maintenance.
 
----
-
-## ✨ Key Features
-
-<table>
-  <tr>
-    <td width="50%">
-      <h3>🛡️ Enforced Zero-Risk Verification</h3>
-      <p>Multi-stage verification guarantees safety: rule match + marker verification + in-process git-ignore proof + lockfile validation. Git-tracked files are <b>never touched</b>.</p>
-    </td>
-    <td width="50%">
-      <h3>⚡ Blazing-Fast Parallel Walk</h3>
-      <p>Prune-on-match traversal bypasses recursive walking inside candidate trees. Scans an entire drive with 29,000+ folders in under <b>4.2 seconds</b>.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h3>🎯 Granular Safety Tiers</h3>
-      <p>Clean with complete peace of mind using categorized tiers: <b>Safe</b> (exact lockfile reinstall), <b>Rebuild</b> (compiled outputs), and <b>Heavy</b> (slow caches like Unity Library).</p>
-    </td>
-    <td width="50%">
-      <h3>📦 Universal Cache Management</h3>
-      <p>Scrub 20+ global tool caches including npm, pnpm, Cargo, pip, uv, NuGet, Gradle, Go, and Hugging Face models using tool-native cleanup commands whenever available.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h3>💨 Instant Staging Architecture</h3>
-      <p>Eliminate deletion lag. Folders are instantly moved out of the project via an atomic in-volume sibling rename (<code>&lt;name&gt;.&lt;pid&gt;-&lt;nanos&gt;.devclean-trash</code>) with a single metadata operation, preventing cross-volume and root permission issues, then purged concurrently in the background.</p>
-    </td>
-    <td width="50%">
-      <h3>💻 Desktop GUI + Featherweight CLI</h3>
-      <p>Enjoy a sleek, dark-mode Windows 11 desktop app with live drive meters, or use the standalone 1.6 MB <code>devclean.exe</code> CLI for CI/CD and Task Scheduler jobs.</p>
-    </td>
-  </tr>
-</table>
-
----
-
-## 📸 Visual Tour
-
-### 1. High-Performance Desktop Interface
-Inspect, filter, and selectively purge candidates by project, age, ecosystem, and reclaimable size. Real-time disk space meters poll directly via kernel queries to reflect freed bytes as files vanish.
+## Screenshots
 
 <p align="center">
-  <img src="assets/devclean-preview.jpg" alt="devClean Desktop Interface Preview" width="850" />
+  <img src="docs/assets/projects.png" alt="Projects view showing scanned drives, tier toggles, and sorted artifact candidates" width="860" />
+  <br /><em>Projects view: live drive meters, tier/ecosystem/age filters, and virtualized candidate list.</em>
 </p>
-
-### 2. The Zero-Risk Verification Funnel
-Every directory must successfully pass through devClean's five-stage verification pipeline before it can ever be scheduled for deletion:
 
 <p align="center">
-  <img src="assets/safety-pipeline.svg" alt="devClean Safety Pipeline Architecture" width="850" />
+  <img src="docs/assets/categorized.png" alt="Categorized view grouping artifacts by folder with proportional size bars" width="860" />
+  <br /><em>Categorized view: group results by folder, ecosystem, or type with nested selection and size-share bars.</em>
 </p>
 
-### 3. Real-Time Safety &amp; Lock Protections
-- **Junction & Symlink Immunity**: Reparse points and symlinks (such as `pnpm` junction stores) are removed strictly as links and are never traversed.
-- **In-Use File Tolerance**: If an IDE or compiler process holds a file open, devClean logs the locked resource without terminating the purge job.
-- **Crash Recovery**: If a purge is interrupted, the next scan identifies orphaned `.devclean-trash` staging folders and cleanly re-stages them for removal.
+<p align="center">
+  <img src="docs/assets/caches.png" alt="Global caches tab listing detected package manager and toolchain caches" width="860" />
+  <br /><em>Global caches: detects system-wide stores and runs native cleanup commands (such as <code>npm cache clean</code> or <code>pnpm store prune</code>) when available.</em>
+</p>
 
----
+<p align="center">
+  <img src="docs/assets/delete-progress.png" alt="Live deletion progress panel showing freed bytes, file count, speed, and active subfolders" width="860" />
+  <br /><em>Live delete panel: atomic staging removes folders immediately, followed by parallel background purge with live throughput and ETA.</em>
+</p>
 
-## 🛡️ Safety Model &amp; Tiers
+## How it works
 
-### Deletion Tiers
+```mermaid
+flowchart LR
+    A["Parallel Walker<br/>(Rayon, prune-on-match)"] --> B["Rule Name Pre-filter<br/>(rules.toml)"]
+    B --> C["Marker Verification<br/>(parent_any / parent_all / inside_any)"]
+    C --> D["In-process Git Proof<br/>(.git/index + .gitignore)"]
+    D --> E["Tier Classification<br/>(Safe / Rebuild / Heavy)"]
+    E --> F["Atomic Stage Rename<br/>(*.devclean-trash)"]
+    F --> G["Parallel Background Purge<br/>(symlinks unlinked, locked files skipped)"]
+```
 
-| Tier | Classification | Verification Criteria | Reinstall / Recovery Cost |
-|:---|:---|:---|:---|
-| 🟢 **Safe** | Pure dependencies & caches | Project marker + git-ignored + valid lockfile | Exact byte-for-byte reinstall (`npm ci`, `cargo build`) |
-| 🟡 **Rebuild** | Build outputs & artifacts | Project marker + git-ignored | Recompilation time (e.g. `target/`, `dist/`, `bin/obj/`) |
-| 🟠 **Heavy** | Large regenerable assets | Project marker + explicit opt-in | High bandwidth / long re-index (e.g. Unity `Library`, Unreal DDC) |
+1. **Scan & verify**: `devclean-core` walks target roots in parallel, skipping default OS/tool-home exclusions and reparse points (symlinks/junctions). Whenever a directory name matches a rule in [`rules.toml`](rules.toml), it checks sibling/interior markers and evaluates `.git/index` plus `.gitignore` rules in-process without spawning `git`.
+2. **Stage & purge**: In the desktop app, the Rust backend holds the authoritative candidate map and only accepts candidate IDs for deletion. Approved folders are renamed to a sibling `*.devclean-trash` name in one metadata op and then deleted in parallel; if a run is interrupted, the built-in `devclean-leftover` rule picks up any orphaned staging folders on the next scan.
 
-### The "Never Touched" Blacklist
+## Safety model
 
-devClean enforces hard exclusions at the scanner core:
-- **Git-Tracked Content**: Any file or directory tracked in a Git index is strictly immutable.
-- **Repository Metadata**: `.git/`, `.hg/`, `.svn/` roots are completely skipped.
-- **System & OS Trees**: `C:\Windows`, `Program Files`, `Program Files (x86)`, `$Recycle.Bin`, `System Volume Information`, and `AppData\Local\Packages` are ignored during project scans.
-- **Developer Settings**: `.vscode/`, `.idea/`, `.vs/`, Go `vendor/`, and Unreal `Saved/` are preserved.
-- **Unverified Dependencies**: Any dependency folder lacking both a valid lockfile and `.gitignore` proof is rejected.
+### Deletion tiers
 
----
+| Tier | Default selection | Criteria | Recovery cost |
+| :--- | :--- | :--- | :--- |
+| **Safe** | Selected | Lockfile-backed dependencies (`node_modules`, `.venv`, `vendor`, `.terraform`) or pure tool caches | Exact reinstall (`npm install`, `uv sync`, etc.) |
+| **Rebuild** | Selected | Compiled build outputs (`target`, `bin`/`obj`, `dist`, `build`, CMake builds) | Local recompilation |
+| **Heavy** | Opt-in (unchecked) | Large, slow-to-regenerate directories (Unity `Library`, Unreal `DerivedDataCache`/`Binaries`, Maven `.m2`, Hugging Face hub) | Long re-import, shader compile, or multi-GB download |
 
-## 🌐 Supported Ecosystems
+### Hardcoded protections
 
-Rules live in the embedded [`rules.toml`](rules.toml) configuration. Adding or updating rules is declarative:
+- **Git-tracked files are never eligible**: Inside a Git repository, candidates must be git-ignored and not present in `.git/index`. Ambiguous names (`dist`, `build`, `out`, etc.) set `needs_git = true` and are skipped outside Git repositories.
+- **Symlinks and NTFS junctions are never followed**: `dir_size` and the walker skip reparse points so shared stores (like pnpm junctions) are never traversed or double-counted.
+- **Default exclusions**: OS directories (`Windows`, `Program Files`, `ProgramData`, `$Recycle.Bin`, `System Volume Information`), VCS metadata (`.git`, `.hg`, `.svn`, `.jj`), and tool homes (`AppData`, `.cargo`, `.rustup`, `.nuget`, `.gradle`, `.vscode`, `.docker`, etc.) are excluded from project scans.
 
-| Ecosystem | Cleanable Targets | Verification Marker | Default Tier |
-|:---|:---|:---|:---|
-| **Node.js / JS / TS** | `node_modules`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`, `.turbo`, `.parcel-cache`, `.angular`, `.expo`, `storybook-static`, `dist`, `build`, `out` | `package.json` | 🟢 Safe / 🟡 Rebuild |
-| **Rust / Tauri** | `target` | `Cargo.toml` | 🟡 Rebuild |
-| **Python** | `.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `*.egg-info` | `pyproject.toml`, `requirements*.txt`, `pyvenv.cfg` | 🟢 Safe |
-| **.NET / C#** | `bin`, `obj` | `*.csproj`, `*.fsproj`, `*.sln` | 🟡 Rebuild |
-| **Java / Kotlin** | `target`, `build`, `.gradle` | `pom.xml`, `build.gradle`, `build.gradle.kts` | 🟡 Rebuild |
-| **C / C++** | CMake build directories | `CMakeCache.txt` | 🟡 Rebuild |
-| **Flutter / Dart** | `build`, `.dart_tool` | `pubspec.yaml` | 🟡 Rebuild |
-| **PHP** | `vendor` | `composer.json` + `composer.lock` | 🟢 Safe |
-| **Elixir** | `_build`, `deps` | `mix.exs` | 🟢 Safe / 🟡 Rebuild |
-| **Haskell** | `.stack-work`, `dist-newstyle` | `stack.yaml`, `*.cabal` | 🟡 Rebuild |
-| **Zig** | `.zig-cache`, `zig-cache`, `zig-out` | `build.zig` | 🟡 Rebuild |
-| **Unity** | `Library`, `Temp`, `Obj`, `Logs` | `ProjectSettings/ProjectVersion.txt` | 🟠 Heavy / 🟡 Rebuild |
-| **Unreal Engine** | `Intermediate`, `DerivedDataCache`, `Binaries` | `*.uproject` | 🟠 Heavy / 🟡 Rebuild |
-| **Godot** | `.godot` | `project.godot` | 🟡 Rebuild |
-| **Terraform** | `.terraform` | `*.tf` | 🟢 Safe |
+## Supported ecosystems and caches
 
-### Universal Global Caches
+Rules are embedded at compile time from [`rules.toml`](rules.toml), and global caches are defined in [`crates/core/src/caches.rs`](crates/core/src/caches.rs).
 
-devClean detects and scrubs global package caches. When the owning runtime CLI is present on your `PATH`, devClean delegates to the official tool to maintain store integrity:
+<details>
+<summary>Project artifact rules (30 rules across 22 ecosystems)</summary>
 
-| Ecosystem / Tool | Cache Targets Cleaned | Method / Command Invoked |
-|:---|:---|:---|
-| **npm** | `%LOCALAPPDATA%\npm-cache\_cacache` | `npm cache clean --force` |
-| **pnpm** | `%LOCALAPPDATA%\pnpm\store` | `pnpm store prune` |
-| **Yarn** | `%LOCALAPPDATA%\Yarn\Cache` | `yarn cache clean` |
-| **Bun** | `~/.bun/install/cache` | Directory purge |
-| **Cargo** | `~/.cargo/registry/{cache,src}`, `~/.cargo/git/{checkouts,db}` | Safe registry cache purge (binaries untouched) |
-| **pip** | `%LOCALAPPDATA%\pip\cache` | `pip cache purge` |
-| **uv** | `%LOCALAPPDATA%\uv\cache` | `uv cache clean` |
-| **Poetry** | `%LOCALAPPDATA%\pypoetry\Cache` | Directory purge |
-| **NuGet** | `~/.nuget\packages`, `%LOCALAPPDATA%\NuGet\v3-cache` | `dotnet nuget locals all --clear` |
-| **Gradle** | `~/.gradle\caches`, `~/.gradle\wrapper\dists` | Directory purge |
-| **Maven** | `~/.m2\repository` | Directory purge (Heavy) |
-| **Go** | `%GOMODCACHE%`, `%GOCACHE%` | `go clean -modcache`, `go clean -cache` |
-| **Hugging Face** | `~/.cache\huggingface\hub` | Directory purge (Heavy) |
-| **JetBrains** | `%LOCALAPPDATA%\JetBrains\*\caches` | Safe IDE cache purge (settings untouched) |
-| **VS Code** | `%APPDATA%\Code\Cache`, `CachedData`, `CachedExtensionVSIXs` | Cache purge (extensions and configs preserved) |
+| Ecosystem | Target directories | Required markers | Default tier |
+| :--- | :--- | :--- | :--- |
+| **Node.js** | `node_modules`, `.next`, `.nuxt`, `.output`, `.svelte-kit`, `.astro`, `.turbo`, `.parcel-cache`, `.angular`, `.expo`, `.docusaurus`, `.vite`, `.nx`, `.wrangler`, `.vinxi`, `.react-router`, `dist`, `build`, `out`, `storybook-static`, `coverage`, `.cache`, `release`, `dist-electron` | `package.json` (+ lockfile for `node_modules`; `needs_git` for build outputs) | Safe / Rebuild |
+| **Rust** | `target` | `Cargo.toml` | Rebuild |
+| **Python** | `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.hypothesis`, `.pytype`, `.pyre`, `.tox`, `.nox`, `.venv`, `venv`, `env`, `.env`, `virtualenv`, `build`, `dist`, `*.egg-info`, `.eggs` | `pyvenv.cfg` + manifest/lockfile for venvs; `pyproject.toml`/`setup.py`/`setup.cfg` for builds | Safe / Rebuild |
+| **.NET** | `obj`, `bin` | `*.csproj`, `*.fsproj`, `*.vbproj` (`bin` also requires sibling `obj`) | Rebuild |
+| **Java / Kotlin / Scala** | `target`, `build`, `.gradle`, `.kotlin`, `.cxx`, `.externalNativeBuild`, `.bloop`, `.bsp`, `.metals` | `pom.xml`, `build.gradle*`, `settings.gradle*`, `build.sbt` | Rebuild |
+| **C / C++** | `build`, `builds`, `cmake-build-*`, `_build`, `.xmake` | `CMakeLists.txt` + `CMakeCache.txt`/`CMakeFiles`, or `xmake.lua` | Rebuild |
+| **Flutter / Dart** | `build`, `.dart_tool` | `pubspec.yaml` | Rebuild |
+| **Swift** | `.build`, `.swiftpm` | `Package.swift` | Rebuild |
+| **PHP** | `vendor` | `composer.json` + `composer.lock` | Safe |
+| **Elixir / Erlang** | `_build`, `deps`, `.elixir_ls` | `mix.exs` (+ `mix.lock`) or `rebar.config` | Safe / Rebuild |
+| **Haskell / OCaml / Elm** | `.stack-work`, `dist-newstyle`, `_build`, `_opam`, `elm-stuff` | `stack.yaml`/`cabal.project`/`*.cabal`, `dune-project`, `elm.json` | Rebuild |
+| **Zig / Nim** | `.zig-cache`, `zig-cache`, `zig-out`, `nimcache` | `build.zig`, `*.nimble`/`*.nim` | Rebuild |
+| **Unity** | `Library`, `Temp`, `Obj`, `Logs`, `Build`, `Builds` | `ProjectSettings/ProjectVersion.txt` + `Assets` | Heavy / Rebuild |
+| **Unreal** | `Intermediate`, `DerivedDataCache`, `Binaries` | `*.uproject` / `*.uplugin` (`Binaries` also requires `Source`) | Rebuild / Heavy |
+| **Godot** | `.godot`, `.import` | `project.godot` | Safe |
+| **Terraform / Serverless** | `.terraform`, `.serverless`, `.aws-sam` | `*.tf` (+ `.terraform.lock.hcl`), `serverless.yml`/`template.yaml`/`samconfig.toml` | Safe / Rebuild |
+| **Self-healing** | `*.devclean-trash` | None (interrupted staging folders) | Safe |
 
----
+</details>
 
-## 🚀 Installation &amp; Usage
+<details>
+<summary>Global package and toolchain caches (25 caches)</summary>
 
-### Desktop GUI (Tauri v2)
+| ID | Cache | Tier | Native command (when on `PATH`) |
+| :--- | :--- | :--- | :--- |
+| `npm` | npm cache | Safe | `npm cache clean --force` |
+| `pnpm` | pnpm store | Safe | `pnpm store prune` |
+| `yarn` | Yarn cache | Safe | `yarn cache clean` |
+| `bun` | Bun cache | Safe | Directory purge |
+| `node-gyp` | node-gyp headers | Safe | Directory purge |
+| `electron` | Electron downloads | Safe | Directory purge |
+| `playwright` | Playwright browsers | Rebuild | Directory purge |
+| `puppeteer` | Puppeteer browsers | Rebuild | Directory purge |
+| `typescript` | TypeScript typings cache | Safe | Directory purge |
+| `deno` | Deno cache | Safe | Directory purge |
+| `cargo` | Cargo registry & git (`~/.cargo/bin` untouched) | Safe | Directory purge |
+| `pip` | pip cache | Safe | `pip cache purge` |
+| `uv` | uv cache | Safe | `uv cache clean` |
+| `poetry` | Poetry cache | Safe | Directory purge |
+| `nuget` | NuGet packages | Safe | `dotnet nuget locals all --clear` |
+| `gradle` | Gradle caches & wrapper dists | Safe | Directory purge |
+| `maven` | Maven repository | Heavy | Directory purge |
+| `go-mod` | Go module cache | Safe | `go clean -modcache` |
+| `go-build` | Go build cache | Safe | `go clean -cache` |
+| `composer` | Composer cache | Safe | `composer clear-cache` |
+| `gem` | RubyGems cache | Safe | Directory purge |
+| `vcpkg` | vcpkg binary cache | Safe | Directory purge |
+| `huggingface` | Hugging Face hub | Heavy | Directory purge |
+| `jetbrains-caches` | JetBrains IDE caches (settings untouched) | Rebuild | Directory purge |
+| `vscode-cache` | VS Code caches | Safe | Directory purge |
 
-The desktop app provides an interactive view with drive meters, candidate search, age filters, and one-click cleaning.
+</details>
 
-- **Portable Executable**: Run `devclean-app.exe` directly without installation.
-- **Installer**: Run the NSIS setup wizard `devclean-setup.exe` for Start Menu and shortcut integration.
+## Installation
 
-### Command-Line Interface (CLI)
+### Requirements
 
-The standalone CLI (`devclean.exe`) is a single 1.6 MB binary with zero external dependencies.
+- **OS**: Windows 10 or Windows 11 (x64)
+- **WebView2 Runtime**: Required for the desktop GUI (pre-installed on Windows 11 and modern Windows 10)
+
+### Download
+
+Download the latest binaries from [GitHub Releases](https://github.com/projectGloria/devCleanup/releases) (or [build from source](#building-from-source)):
+
+- **Desktop GUI**: Run the NSIS installer or portable `devclean-app.exe`.
+- **CLI**: Place `devclean.exe` anywhere on your `PATH`.
+
+## Usage
+
+### Desktop GUI
+
+1. Select one or more drives from the top bar, or click **+ Folder...** to add specific directories.
+2. Click **Scan** to stream candidates in real time.
+3. Filter by tier (`Safe`, `Rebuild`, `Heavy`), ecosystem, untouched age, or path—or toggle **Categorize** to inspect space usage by folder, ecosystem, or type.
+4. Click **Delete** to review the confirmation dialog (including each item's restore command) and start atomic stage-and-purge removal.
+5. Switch to **Global caches** and click **Detect caches** to measure and clean system-wide package stores.
+
+### Command-line interface (`devclean`)
 
 ```powershell
-# Scan directories or whole drives (dry run)
-devclean scan C:\Users\Username\Projects
+# Dry-run scan of one or more folders or drives
+devclean scan D:\Projects
 
-# Filter for projects untouched for over 30 days
-devclean scan D:\ -older-than 30d
+# Only show projects untouched for at least 30 days
+devclean scan D:\ --older-than 30d
 
-# Target specific safety tiers (default: safe,rebuild)
-devclean scan C:\Work --tier safe
+# Filter by safety tier (default: safe,rebuild) or emit JSON
+devclean scan D:\Projects --tier safe --json
 
-# Clean candidates with interactive confirmation
-devclean clean C:\Work --older-than 14d
+# Delete candidates with interactive confirmation
+devclean clean D:\Projects --older-than 14d
 
-# Clean without confirmation prompt (ideal for CI / scripts)
-devclean clean D:\OldProjects --yes
+# Non-interactive delete for scripts / scheduled tasks
+devclean clean D:\Projects --older-than 30d --yes
 
-# List reclaimable space across global package caches
+# List detected global caches (or add --json)
 devclean caches
 
-# Clean all safe global caches
+# Clean all non-heavy global caches, or name heavy caches explicitly
 devclean clean-caches all --yes
-
-# Clean heavy caches by ID (e.g. Maven repository or Hugging Face hub)
 devclean clean-caches maven huggingface --yes
 
-# Print the active verification rule table
+# Print the embedded rule table
 devclean rules
 ```
 
-### Automation via Windows Task Scheduler
+Additional flag: `--no-default-excludes` disables the default OS/tool-home exclusion list during `scan` or `clean`.
 
-Set up a weekly background clean for forgotten build folders over 30 days old:
+<details>
+<summary>Example: Weekly cleanup with Windows Task Scheduler</summary>
 
 ```powershell
-# Run silently every Sunday at 02:00 AM
-$Action = New-ScheduledTaskAction -Execute "C:\Tools\devclean.exe" -Argument "clean C:\Projects --older-than 30d --yes"
+$Action = New-ScheduledTaskAction -Execute "C:\Tools\devclean.exe" -Argument "clean D:\Projects --older-than 30d --yes"
 $Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 2am
 Register-ScheduledTask -TaskName "devClean Weekly Maintenance" -Action $Action -Trigger $Trigger
 ```
 
----
+</details>
 
-## ⚡ Performance &amp; Benchmarks
-
-Measured on a standard Windows 11 workstation (NVMe SSD, AMD Ryzen / Intel Core):
-
-| Metric | Measured Value | Notes |
-|:---|:---|:---|
-| **Full `C:\` Drive Scan** | **4.2 seconds** | 29,412 directories walked after pruning |
-| **Reclaimable Space Found** | **53.9 GB** project files + **8.3 GB** global caches | 138 candidates detected across 8 ecosystems |
-| **CLI Binary Size** | **1.6 MB** | Hand-rolled CLI parser, stripped symbols, fat LTO |
-| **GUI App / Installer** | **6.2 MB** / **1.8 MB** | Tauri v2 with native WebView2 integration |
-| **Idle Memory Footprint** | **5 MB** (CLI / Rust Core) | Lightweight native memory footprint |
-| **Staging Time** | **< 1 millisecond** per folder | Instant atomic directory rename |
-
----
-
-## 🛠️ Building from Source
+## Building from source
 
 ### Prerequisites
 
-Ensure the following tools are installed:
-- **Rust (MSVC)**: 1.80+ (`rustup default stable-x86_64-pc-windows-msvc`)
-- **Node.js**: v20+ and npm
-- **WebView2**: Standard component on Windows 10/11
+- **Rust** (stable MSVC toolchain, edition 2021) — `rustup default stable-x86_64-pc-windows-msvc`
+- **Node.js** (with `npm`) — for the Vite + React 19 frontend
+- **WebView2** — pre-installed on Windows 10/11
 
-### Build Steps
+### Steps
 
-1. **Clone the repository:**
+1. Clone the repository:
    ```powershell
    git clone https://github.com/projectGloria/devCleanup.git
    cd devCleanup
    ```
 
-2. **Run test suites:**
+2. Run the workspace test suite:
    ```powershell
    cargo test --workspace
    ```
 
-3. **Build the CLI executable:**
+3. Build the standalone CLI:
    ```powershell
    cargo build --release -p devclean
-   # Output: target/release/devclean.exe (1.6 MB)
    ```
+   Output: `target/release/devclean.exe`
 
-4. **Build the Desktop GUI application:**
+4. Build the desktop GUI and NSIS installer:
    ```powershell
    cd app
    npm install
    npx tauri build
-   # Output: target/release/bundle/nsis/ (Installer) and devclean-app.exe
    ```
+   Outputs: `target/release/devclean-app.exe` and the NSIS installer in `target/release/bundle/nsis/`.
 
----
+For frontend/GUI development with hot reload:
+```powershell
+cd app
+npx tauri dev
+```
 
-## 🎨 Design Philosophy
+## Contributing
 
-<p align="center">
-  <img src="assets/icon.png" alt="devClean Icon" width="100" height="100" />
-</p>
+Contributions are welcome, especially new ecosystem rules in [`rules.toml`](rules.toml) and global cache definitions in [`crates/core/src/caches.rs`](crates/core/src/caches.rs).
 
-> *"A vibrant teal-to-indigo gradient disc bearing three descending stacked bars — visualizing the satisfying collapse of accumulated developer clutter."*
+1. Fork the repository and create a feature branch.
+2. Add or update fixture tests in `crates/core/tests/fixtures.rs` when changing scanner or rule behavior.
+3. Run `cargo test --workspace` to verify everything passes.
+4. Open a pull request describing the change and safety rationale.
 
-- **Predictable & Non-Destructive**: A developer tool should never surprise the user. By combining lockfile requirements, Git index verification, and atomic staging, devClean guarantees that you never lose uncommitted code.
-- **Zero-Bloat Binaries**: We deliberately hand-rolled argument parsing and minimized external dependencies. The CLI compiles to just 1.6 MB with LTO enabled.
-- **Instant Feedback**: Disk cleanups shouldn't feel like waiting for a file transfer. Atomic staging ensures the UI responds immediately, while background threads handle file deletions quietly.
+## License
 
----
+devClean is licensed under the [MIT License](LICENSE). Copyright (c) 2026 devClean contributors.
 
-## 📜 License &amp; Credits
-
-devClean is open-source software licensed under the **[MIT License](LICENSE)**.
-
-- **Author**: devClean contributors & [projectGloria](https://github.com/projectGloria)
-- **Built with**: [Rust](https://www.rust-lang.org/), [Tauri](https://tauri.app/), [React](https://react.dev/), and [Vite](https://vitejs.dev/)
-- **License**: See the full [LICENSE](LICENSE) file for complete details.
+Built with [Rust](https://www.rust-lang.org/), [Tauri](https://tauri.app/), [React](https://react.dev/), and [Vite](https://vite.dev/).
