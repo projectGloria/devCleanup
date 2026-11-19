@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { useScan } from './hooks/useScan.js';
 import { useDrives } from './hooks/useDrives.js';
 import { useDelete } from './hooks/useDelete.js';
@@ -26,6 +27,8 @@ export default function App() {
   const { job, start: startDelete, clear: clearDelete } = useDelete();
 
   const deleting = job !== null && job.phase !== 'done';
+  const deletingRef = useRef(deleting);
+  deletingRef.current = deleting;
 
   // Auto-dismiss: a timer is an external side effect bound to the toast's lifetime.
   useEffect(() => {
@@ -42,35 +45,40 @@ export default function App() {
     return () => clearInterval(t);
   }, [deleting, refreshDrives]);
 
-  const handleClose = async () => {
-    if (deleting) {
-      const ok = window.confirm(
-        'A deletion is currently running in the background.\nClosing now will abort the cleanup. Are you sure you want to exit?',
-      );
-      if (!ok) return;
-    }
-    await getCurrentWindow().destroy();
-  };
-
+  // Single close path for TitleBar X, Alt+F4, and taskbar close.
+  // Tauri's `onCloseRequested` calls `window.destroy()` when not prevented, which requires
+  // `core:window:allow-destroy`. Using async plugin `confirm()` avoids blocking WebView2.
   useEffect(() => {
     const win = getCurrentWindow();
+    let alive = true;
+    let prompting = false;
     let unlisten;
     win
-      .onCloseRequested((event) => {
-        if (deleting) {
-          const ok = window.confirm(
+      .onCloseRequested(async (event) => {
+        if (!deletingRef.current) return;
+        if (prompting) {
+          event.preventDefault();
+          return;
+        }
+        prompting = true;
+        try {
+          const ok = await confirm(
             'A deletion is currently running in the background.\nClosing now will abort the cleanup. Are you sure you want to exit?',
+            { title: 'Exit devClean?', kind: 'warning' },
           );
           if (!ok) {
             event.preventDefault();
           }
+        } finally {
+          prompting = false;
         }
       })
-      .then((fn) => {
-        unlisten = fn;
-      });
-    return () => unlisten?.();
-  }, [deleting]);
+      .then((fn) => (alive ? (unlisten = fn) : fn()));
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
 
   const runDelete = (list) => {
     setPending(null);
@@ -92,7 +100,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TitleBar onClose={handleClose}>
+      <TitleBar>
         <div className="brand">
           <h1>devClean</h1>
           <span className="dim">re-creatable dev artifacts only</span>
