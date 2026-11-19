@@ -11,7 +11,7 @@ Reclaim gigabytes of re-creatable `node_modules`, `target`, `.venv`, build outpu
 <p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-3fb950.svg?style=flat-square" alt="License: MIT" /></a>
   <a href="https://github.com/projectGloria/devCleanup/actions/workflows/ci.yml"><img src="https://github.com/projectGloria/devCleanup/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/projectGloria/devCleanup/releases"><img src="https://img.shields.io/badge/Version-1.0.0--beta.2-2dd4bf.svg?style=flat-square" alt="Version: 1.0.0-beta.2" /></a>
+  <a href="https://github.com/projectGloria/devCleanup/releases"><img src="https://img.shields.io/badge/Version-1.0.0-2dd4bf.svg?style=flat-square" alt="Version: 1.0.0" /></a>
   <img src="https://img.shields.io/badge/Platform-Windows-0078D4.svg?style=flat-square" alt="Platform: Windows" />
   <img src="https://img.shields.io/badge/Desktop-Tauri%20v2%20%2B%20React%2019-6366f1.svg?style=flat-square" alt="Tauri v2 + React 19" />
 </p>
