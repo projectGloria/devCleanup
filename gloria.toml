@@ -1,0 +1,10 @@
+id            = "devCleanup"
+name          = "devCleanup"
+version       = "1.0.0"
+main_exe      = "devclean-app.exe"
+icon          = "app/src-tauri/icons/icon.ico"
+accent        = "#3b82f6"
+description   = "Developer disk cleaner for build caches"
+needs_webview2 = true
+data_folders  = ["%LOCALAPPDATA%\\com.projectgloria.devclean"]
+legacy_names  = ["devClean"]
