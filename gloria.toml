@@ -1,6 +1,6 @@
 id            = "devCleanup"
 name          = "devCleanup"
-version       = "1.0.0"
+version       = "1.0.1"
 main_exe      = "devclean-app.exe"
 icon          = "app/src-tauri/icons/icon.ico"
 accent        = "#3b82f6"
